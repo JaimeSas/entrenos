@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Entrenos</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Entrenos">
+<style>
+*{-webkit-box-sizing:border-box;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:#0f1115;color:#e8eaf0;font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:16px}
+body{padding:16px 14px 90px}
+h1{font-size:22px;margin:0 0 14px}
+h2{font-size:16px;margin:18px 0 8px;color:#9aa3b5;font-weight:600}
+.view{display:none}
+.view.on{display:block}
+.card{background:#1a1d25;border-radius:12px;padding:12px;margin-bottom:10px}
+label{display:block;font-size:13px;color:#9aa3b5;margin:10px 0 4px}
+input,select,textarea{width:100%;font-size:16px;padding:10px;border-radius:8px;border:1px solid #2c3140;background:#11141a;color:#e8eaf0;-webkit-appearance:none;appearance:none}
+textarea{min-height:140px;font-family:Menlo,monospace;font-size:12px}
+.row{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center}
+.row>*{margin-right:8px}
+.row>*:last-child{margin-right:0}
+.f1{-webkit-box-flex:1;-webkit-flex:1;flex:1;min-width:0}
+.btn{display:block;width:100%;padding:13px;border:0;border-radius:10px;background:#3b82f6;color:#fff;font-size:16px;font-weight:600;margin-top:10px}
+.btn.sec{background:#2c3140}
+.btn.red{background:#b3342f}
+.x{width:40px;padding:10px 0;border:0;border-radius:8px;background:#2c3140;color:#e8eaf0;font-size:16px}
+.chips{margin-top:6px}
+.chip{display:inline-block;padding:6px 10px;margin:0 6px 6px 0;border-radius:14px;background:#252a36;font-size:13px}
+.muted{color:#9aa3b5;font-size:13px}
+.setn{width:22px;color:#9aa3b5;font-size:13px;text-align:center}
+.date{font-size:13px;color:#9aa3b5;margin:16px 0 6px}
+.ex{font-weight:600}
+.stat{display:inline-block;width:48%;margin-bottom:8px}
+.stat b{display:block;font-size:20px}
+nav{position:fixed;left:0;right:0;bottom:0;display:-webkit-box;display:-webkit-flex;display:flex;background:#1a1d25;border-top:1px solid #2c3140;padding-bottom:env(safe-area-inset-bottom)}
+nav button{-webkit-box-flex:1;-webkit-flex:1;flex:1;padding:14px 0;border:0;background:none;color:#9aa3b5;font-size:13px}
+nav button.on{color:#3b82f6;font-weight:700}
+canvas{width:100%;display:block}
+</style>
+</head>
+<body>
+
+<div id="v-log" class="view on">
+  <h1>Registrar</h1>
+  <div class="card">
+    <label>Fecha</label>
+    <input type="date" id="date">
+    <label>Ejercicio</label>
+    <input type="text" id="ex" placeholder="Ej: Press banca" autocapitalize="sentences" autocorrect="off">
+    <div class="chips" id="chips"></div>
+    <div class="muted" id="last"></div>
+    <label>Series (kg × reps)</label>
+    <div id="sets"></div>
+    <button class="btn sec" onclick="addSet()">+ Serie</button>
+    <button class="btn" onclick="saveWorkout()">Guardar</button>
+  </div>
+</div>
+
+<div id="v-hist" class="view">
+  <h1>Historial</h1>
+  <div id="hist"></div>
+</div>
+
+<div id="v-prog" class="view">
+  <h1>Progreso</h1>
+  <div class="card">
+    <label>Ejercicio</label>
+    <select id="pex" onchange="renderProgress()"></select>
+    <label>Métrica</label>
+    <select id="pmet" onchange="renderProgress()">
+      <option value="e1rm">1RM estimado</option>
+      <option value="max">Peso máximo</option>
+      <option value="vol">Volumen (kg×reps)</option>
+    </select>
+  </div>
+  <div class="card"><canvas id="chart"></canvas></div>
+  <div class="card" id="stats"></div>
+</div>
+
+<div id="v-data" class="view">
+  <h1>Datos</h1>
+  <div class="card">
+    <div class="muted">Safari puede borrar los datos del sitio si no lo usas por semanas. Haz respaldo de vez en cuando: copia este texto y guárdalo en Notas.</div>
+    <label>Respaldo</label>
+    <textarea id="exp" readonly></textarea>
+    <button class="btn sec" onclick="refreshExport()">Actualizar respaldo</button>
+  </div>
+  <div class="card">
+    <label>Restaurar (pega el respaldo)</label>
+    <textarea id="imp"></textarea>
+    <button class="btn" onclick="doImport()">Importar</button>
+  </div>
+  <div class="card">
+    <button class="btn red" onclick="clearAll()">Borrar todo</button>
+  </div>
+</div>
+
+<nav>
+  <button data-v="log" class="on">Registrar</button>
+  <button data-v="hist">Historial</button>
+  <button data-v="prog">Progreso</button>
+  <button data-v="data">Datos</button>
+</nav>
+
+<script>
+var KEY = 'entrenos_v1';
+var data = load();
+var sets = [{w:'', r:''}];
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function pad(n){ return (n < 10 ? '0' : '') + n; }
+function today(){ var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+function load(){ try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch(e){ return []; } }
+function persist(){
+  try { localStorage.setItem(KEY, JSON.stringify(data)); return true; }
+  catch(e){ alert('No se pudo guardar. Si estás en modo privado de Safari, desactívalo.'); return false; }
+}
+function num(v){ var n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : n; }
+function fmt(n){ return (Math.round(n * 10) / 10).toString(); }
+function e1rm(w, r){ return w * (1 + r / 30); }
+
+/* ---------- navegación ---------- */
+var navBtns = document.querySelectorAll('nav button');
+for (var i = 0; i < navBtns.length; i++) {
+  navBtns[i].onclick = function(){ show(this.getAttribute('data-v')); };
+}
+function show(v){
+  var views = document.querySelectorAll('.view');
+  for (var i = 0; i < views.length; i++) views[i].className = 'view' + (views[i].id === 'v-' + v ? ' on' : '');
+  for (var j = 0; j < navBtns.length; j++) navBtns[j].className = navBtns[j].getAttribute('data-v') === v ? 'on' : '';
+  if (v === 'hist') renderHist();
+  if (v === 'prog') { fillExSelect(); renderProgress(); }
+  if (v === 'data') refreshExport();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- ejercicios ---------- */
+function exerciseNames(){
+  var sorted = data.slice().sort(function(a, b){ return a.date < b.date ? 1 : (a.date > b.date ? -1 : b.id - a.id); });
+  var seen = {}, out = [];
+  sorted.forEach(function(e){
+    var k = e.ex.toLowerCase();
+    if (!seen[k]) { seen[k] = 1; out.push(e.ex); }
+  });
+  return out;
+}
+function renderChips(){
+  var names = exerciseNames().slice(0, 8), h = '';
+  for (var i = 0; i < names.length; i++) h += '<span class="chip" data-n="' + esc(names[i]) + '">' + esc(names[i]) + '</span>';
+  $('chips').innerHTML = h;
+}
+$('chips').onclick = function(e){
+  var n = e.target.getAttribute && e.target.getAttribute('data-n');
+  if (n) { $('ex').value = n; showLast(); }
+};
+function lastEntry(name){
+  var k = name.toLowerCase(), best = null;
+  data.forEach(function(e){
+    if (e.ex.toLowerCase() === k && (!best || e.date > best.date || (e.date === best.date && e.id > best.id))) best = e;
+  });
+  return best;
+}
+function setsText(arr){
+  return arr.map(function(s){ return fmt(s.w) + '×' + s.r; }).join(' · ');
+}
+function showLast(){
+  var n = $('ex').value.trim(), el = $('last');
+  if (!n) { el.innerHTML = ''; return; }
+  var l = lastEntry(n);
+  el.innerHTML = l ? 'Última vez (' + esc(l.date) + '): ' + esc(setsText(l.sets)) : '';
+}
+$('ex').oninput = showLast;
+
+/* ---------- series ---------- */
+function renderSets(){
+  var h = '';
+  for (var i = 0; i < sets.length; i++) {
+    h += '<div class="row" style="margin-bottom:8px">' +
+      '<div class="setn">' + (i + 1) + '</div>' +
+      '<input class="f1" type="number" step="any" inputmode="decimal" placeholder="kg" data-i="' + i + '" data-f="w" value="' + esc(sets[i].w) + '">' +
+      '<input class="f1" type="number" step="any" inputmode="numeric" placeholder="reps" data-i="' + i + '" data-f="r" value="' + esc(sets[i].r) + '">' +
+      '<button class="x" onclick="removeSet(' + i + ')">✕</button></div>';
+  }
+  $('sets').innerHTML = h;
+}
+$('sets').oninput = function(e){
+  var i = e.target.getAttribute('data-i'), f = e.target.getAttribute('data-f');
+  if (i !== null && f) sets[+i][f] = e.target.value;
+};
+function addSet(){
+  var l = sets[sets.length - 1] || {w:'', r:''};
+  sets.push({w: l.w, r: l.r});
+  renderSets();
+}
+function removeSet(i){
+  sets.splice(i, 1);
+  if (!sets.length) sets.push({w:'', r:''});
+  renderSets();
+}
+function saveWorkout(){
+  var name = $('ex').value.trim();
+  if (!name) { alert('Escribe el ejercicio.'); return; }
+  var clean = [];
+  sets.forEach(function(s){
+    var w = num(s.w), r = num(s.r);
+    if (w !== null && r !== null && r > 0) clean.push({w: w, r: r});
+  });
+  if (!clean.length) { alert('Agrega al menos una serie con kg y reps.'); return; }
+  data.push({id: new Date().getTime(), date: $('date').value || today(), ex: name, sets: clean});
+  if (!persist()) { data.pop(); return; }
+  sets = [{w: clean[clean.length-1].w, r: clean[clean.length-1].r}];
+  $('ex').value = '';
+  $('last').innerHTML = '';
+  renderSets(); renderChips();
+  alert('Guardado ✓');
+}
+
+/* ---------- historial ---------- */
+function renderHist(){
+  if (!data.length) { $('hist').innerHTML = '<div class="muted">Aún no hay entrenos.</div>'; return; }
+  var sorted = data.slice().sort(function(a, b){ return a.date < b.date ? 1 : (a.date > b.date ? -1 : b.id - a.id); });
+  var h = '', cur = '';
+  sorted.forEach(function(e){
+    if (e.date !== cur) { cur = e.date; h += '<div class="date">' + esc(cur) + '</div>'; }
+    h += '<div class="card"><div class="row"><div class="f1"><div class="ex">' + esc(e.ex) + '</div>' +
+      '<div class="muted">' + esc(setsText(e.sets)) + '</div></div>' +
+      '<button class="x" onclick="delEntry(' + e.id + ')">🗑</button></div></div>';
+  });
+  $('hist').innerHTML = h;
+}
+function delEntry(id){
+  if (!confirm('¿Borrar este registro?')) return;
+  data = data.filter(function(e){ return e.id !== id; });
+  persist(); renderHist(); renderChips();
+}
+
+/* ---------- progreso ---------- */
+function fillExSelect(){
+  var names = exerciseNames(), sel = $('pex'), prev = sel.value, h = '';
+  for (var i = 0; i < names.length; i++) h += '<option value="' + esc(names[i]) + '">' + esc(names[i]) + '</option>';
+  sel.innerHTML = h || '<option value="">(sin datos)</option>';
+  if (prev) sel.value = prev;
+}
+function metricOf(e, m){
+  var v = 0;
+  e.sets.forEach(function(s){
+    var x = m === 'e1rm' ? e1rm(s.w, s.r) : (m === 'max' ? s.w : s.w * s.r);
+    if (m === 'vol') v += x; else if (x > v) v = x;
+  });
+  return v;
+}
+function renderProgress(){
+  var name = $('pex').value, m = $('pmet').value;
+  var list = data.filter(function(e){ return e.ex.toLowerCase() === name.toLowerCase(); })
+    .sort(function(a, b){ return a.date < b.date ? -1 : (a.date > b.date ? 1 : a.id - b.id); });
+  var pts = list.map(function(e){ return {d: e.date, v: metricOf(e, m)}; });
+  drawChart(pts);
+  if (!list.length) { $('stats').innerHTML = '<div class="muted">Sin datos.</div>'; return; }
+  var pr = 0, best1 = 0;
+  list.forEach(function(e){ e.sets.forEach(function(s){ if (s.w > pr) pr = s.w; var x = e1rm(s.w, s.r); if (x > best1) best1 = x; }); });
+  var first = pts[0].v, last = pts[pts.length-1].v;
+  var diff = first > 0 ? Math.round((last - first) / first * 100) : 0;
+  $('stats').innerHTML =
+    '<div class="stat"><span class="muted">Peso máx</span><b>' + fmt(pr) + ' kg</b></div>' +
+    '<div class="stat"><span class="muted">1RM est. mejor</span><b>' + fmt(best1) + ' kg</b></div>' +
+    '<div class="stat"><span class="muted">Sesiones</span><b>' + list.length + '</b></div>' +
+    '<div class="stat"><span class="muted">Cambio (' + (m === 'e1rm' ? '1RM' : m === 'max' ? 'peso' : 'vol') + ')</span><b>' + (diff > 0 ? '+' : '') + diff + '%</b></div>';
+}
+function drawChart(pts){
+  var c = $('chart'), w = c.parentNode.clientWidth - 24, h = 220;
+  if (w < 50) w = 280;
+  var dpr = window.devicePixelRatio || 1;
+  c.width = w * dpr; c.height = h * dpr;
+  c.style.width = w + 'px'; c.style.height = h + 'px';
+  var g = c.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  g.font = '11px -apple-system, Helvetica, Arial';
+  if (!pts.length) { g.fillStyle = '#9aa3b5'; g.fillText('Sin datos', 10, 20); return; }
+  var min = pts[0].v, max = pts[0].v, i;
+  for (i = 0; i < pts.length; i++) { if (pts[i].v < min) min = pts[i].v; if (pts[i].v > max) max = pts[i].v; }
+  if (max === min) { max += 1; min -= 1; }
+  var L = 36, R = 10, T = 14, B = 26, pw = w - L - R, ph = h - T - B;
+  function X(k){ return pts.length === 1 ? L + pw / 2 : L + pw * k / (pts.length - 1); }
+  function Y(v){ return T + ph - (v - min) / (max - min) * ph; }
+  g.strokeStyle = '#2c3140'; g.fillStyle = '#9aa3b5'; g.lineWidth = 1;
+  for (i = 0; i <= 3; i++) {
+    var yv = min + (max - min) * i / 3, y = Y(yv);
+    g.beginPath(); g.moveTo(L, y); g.lineTo(w - R, y); g.stroke();
+    g.fillText(fmt(yv), 2, y + 4);
+  }
+  g.strokeStyle = '#3b82f6'; g.lineWidth = 2; g.beginPath();
+  for (i = 0; i < pts.length; i++) { if (i === 0) g.moveTo(X(i), Y(pts[i].v)); else g.lineTo(X(i), Y(pts[i].v)); }
+  g.stroke();
+  g.fillStyle = '#3b82f6';
+  for (i = 0; i < pts.length; i++) { g.beginPath(); g.arc(X(i), Y(pts[i].v), 3.5, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = '#9aa3b5';
+  g.fillText(pts[0].d.slice(5), L, h - 8);
+  if (pts.length > 1) { var t = pts[pts.length-1].d.slice(5); g.fillText(t, w - R - g.measureText(t).width, h - 8); }
+}
+
+/* ---------- datos ---------- */
+function refreshExport(){ $('exp').value = JSON.stringify(data); }
+function doImport(){
+  var txt = $('imp').value.trim();
+  if (!txt) return;
+  try {
+    var arr = JSON.parse(txt);
+    if (!(arr instanceof Array)) throw 0;
+    var ids = {}, added = 0;
+    data.forEach(function(e){ ids[e.id] = 1; });
+    arr.forEach(function(e){
+      if (e && e.id && e.ex && e.date && e.sets instanceof Array && !ids[e.id]) { data.push(e); ids[e.id] = 1; added++; }
+    });
+    persist(); renderChips(); refreshExport();
+    $('imp').value = '';
+    alert('Importados: ' + added);
+  } catch(err){ alert('El texto no es un respaldo válido.'); }
+}
+function clearAll(){
+  if (!confirm('¿Borrar TODOS los entrenos?')) return;
+  if (!confirm('Seguro. No se puede deshacer.')) return;
+  data = []; persist(); renderChips(); refreshExport();
+}
+
+/* ---------- init ---------- */
+$('date').value = today();
+renderSets();
+renderChips();
+</script>
+</body>
+</html>
